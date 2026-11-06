@@ -15,7 +15,7 @@ function createLocalStorage(initial) {
   };
 }
 
-function setup(initialStorage = {}, executeScriptOverride) {
+function setup(initialStorage = {}, executeScriptOverride, tabs = [{ id: 42 }, { id: 43 }]) {
   const localStorage = createLocalStorage(initialStorage);
   const injections = [];
   const reloaded = [];
@@ -29,7 +29,13 @@ function setup(initialStorage = {}, executeScriptOverride) {
         return [{ frameId: 0, result: details.func(...details.args) }];
       })
     },
-    tabs: { reload: async (id) => reloaded.push(id) },
+    tabs: {
+      query: async (details) => {
+        assert.equal(details.url, "https://app.slack.com/*");
+        return tabs;
+      },
+      reload: async (id) => reloaded.push(id)
+    },
     action: {
       onClicked: { addListener: () => {} },
       setBadgeText: async (details) => badges.push(details.text),
@@ -43,55 +49,46 @@ function setup(initialStorage = {}, executeScriptOverride) {
 }
 
 const KEY = "slack-client-theme";
-const tab = { id: 42, url: "https://app.slack.com/client/T000/C000" };
 
-test("dark -> light, targeting the clicked tab and reloading it", async () => {
+test("dark -> light, toggling once and reloading all Slack tabs", async () => {
   const harness = setup({ [KEY]: "dark" });
-  await harness.toggle(tab);
+  await harness.toggle();
   assert.equal(harness.storage.get(KEY), "light");
   assert.equal(harness.injections.length, 1);
   assert.equal(harness.injections[0].target.tabId, 42);
   assert.deepEqual([...harness.injections[0].args], [KEY]);
-  assert.deepEqual(harness.reloaded, [42]);
+  assert.deepEqual(harness.reloaded, [42, 43]);
   assert.deepEqual(harness.badges, ["⬜"]);
   assert.deepEqual(harness.titles, ["⬜"]);
 });
 
 test("light -> dark and reloads the Slack tab", async () => {
   const harness = setup({ [KEY]: "light" });
-  await harness.toggle(tab);
+  await harness.toggle();
   assert.equal(harness.storage.get(KEY), "dark");
-  assert.deepEqual(harness.reloaded, [42]);
+  assert.deepEqual(harness.reloaded, [42, 43]);
   assert.deepEqual(harness.badges, ["⬛"]);
   assert.deepEqual(harness.titles, ["⬛"]);
 });
 
 test("missing key is created as dark", async () => {
   const harness = setup();
-  await harness.toggle(tab);
+  await harness.toggle();
   assert.equal(harness.storage.get(KEY), "dark");
 });
 
-test("tabs outside app.slack.com are ignored", async () => {
-  for (const url of [
-    "https://example.com/",
-    "https://slack.com/",
-    "https://evil.app.slack.com/",
-    "http://app.slack.com/",
-    undefined
-  ]) {
-    const harness = setup({ [KEY]: "dark" });
-    await harness.toggle({ id: 42, url });
-    assert.equal(harness.storage.get(KEY), "dark");
-    assert.equal(harness.injections.length, 0);
-    assert.deepEqual(harness.reloaded, []);
-    assert.deepEqual(harness.badges, []);
-  }
+test("no Slack tabs leaves storage and badge unchanged", async () => {
+  const harness = setup({ [KEY]: "dark" }, undefined, []);
+  await harness.toggle();
+  assert.equal(harness.storage.get(KEY), "dark");
+  assert.equal(harness.injections.length, 0);
+  assert.deepEqual(harness.reloaded, []);
+  assert.deepEqual(harness.badges, []);
 });
 
 test("missing injection result raises and does not reload", async () => {
   const harness = setup({ [KEY]: "dark" }, async () => [{ frameId: 0, result: null }]);
-  await assert.rejects(harness.toggle(tab), /Failed to update slack-client-theme/);
+  await assert.rejects(harness.toggle(), /Failed to update slack-client-theme/);
   assert.deepEqual(harness.reloaded, []);
   assert.deepEqual(harness.badges, []);
 });
@@ -100,6 +97,6 @@ test("injection errors propagate and do not reload", async () => {
   const harness = setup({ [KEY]: "dark" }, async () => {
     throw new Error("Cannot access contents of the page.");
   });
-  await assert.rejects(harness.toggle(tab), /Cannot access contents/);
+  await assert.rejects(harness.toggle(), /Cannot access contents/);
   assert.deepEqual(harness.reloaded, []);
 });

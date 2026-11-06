@@ -1,16 +1,6 @@
 const THEME_STORAGE_KEY = "slack-client-theme";
 const SLACK_ORIGIN = "https://app.slack.com";
 
-function isSlackTab(tab) {
-  if (!tab?.url) return false;
-
-  try {
-    return new URL(tab.url).origin === SLACK_ORIGIN;
-  } catch {
-    return false;
-  }
-}
-
 // Runs inside the Slack page, so it must stay self-contained.
 function toggleStoredTheme(storageKey) {
   const nextValue = localStorage.getItem(storageKey) === "dark" ? "light" : "dark";
@@ -18,12 +8,12 @@ function toggleStoredTheme(storageKey) {
   return nextValue;
 }
 
-async function toggleTheme(tab) {
-  // Tabs outside app.slack.com are ignored; their URL is not even visible without host access.
-  if (!isSlackTab(tab) || tab.id === undefined) return;
+async function toggleTheme() {
+  const tabs = await chrome.tabs.query({ url: `${SLACK_ORIGIN}/*` });
+  if (tabs.length === 0) return;
 
   const [injection] = await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
+    target: { tabId: tabs[0].id },
     func: toggleStoredTheme,
     args: [THEME_STORAGE_KEY]
   });
@@ -44,11 +34,11 @@ async function toggleTheme(tab) {
   ]);
 
   // Slack reads the theme from localStorage on load.
-  await chrome.tabs.reload(tab.id);
+  await Promise.all(tabs.map((tab) => chrome.tabs.reload(tab.id)));
 }
 
-chrome.action.onClicked.addListener((tab) => {
-  toggleTheme(tab).catch(async (error) => {
+chrome.action.onClicked.addListener(() => {
+  toggleTheme().catch(async (error) => {
     console.error("Error toggling Slack theme:", error);
     await Promise.allSettled([
       chrome.action.setBadgeText({ text: "ERR" }),
