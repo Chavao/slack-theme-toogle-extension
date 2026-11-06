@@ -2,7 +2,7 @@
 
 Slack Theme Toggle is a lightweight Chromium extension (Manifest V3) that switches the Slack web client theme between `dark` and `light` with a single click on the extension icon, by updating the `slack-client-theme` key in the page's `localStorage`.
 
-No popup window, DevTools, or preferences navigation is required. The extension directly reads and updates `localStorage` and reloads the current Slack tab.
+No popup window, DevTools, or preferences navigation is required. The extension directly reads and updates `localStorage` and reloads all open Slack tabs.
 
 ## Features
 
@@ -10,8 +10,8 @@ No popup window, DevTools, or preferences navigation is required. The extension 
 - Reads and writes the `slack-client-theme` key in `localStorage` via the `chrome.scripting` API.
 - Sets `slack-client-theme=dark` if the key does not exist.
 - Normalizes any value other than `dark` directly to `dark`.
-- Runs only on `https://app.slack.com/`; clicks on any other tab are ignored.
-- Reloads the Slack tab after the change so the new theme is applied.
+- Targets open tabs on `https://app.slack.com/` from any focused tab.
+- Reloads all open Slack tabs after the change so the new theme is applied.
 - Updates action badge text and background color to indicate the active theme state.
 - Manifest V3 compliant service worker with zero external runtime dependencies.
 - No build step required.
@@ -21,20 +21,20 @@ No popup window, DevTools, or preferences navigation is required. The extension 
 The extension consists of two primary runtime components:
 
 1. `manifest.json`: Declares permissions, host permissions, action metadata, icons, and registers the service worker.
-2. `background.js`: Service worker listening for toolbar icon clicks, injecting the toggle function into the Slack tab, setting the badge indicator, and reloading the page.
+2. `background.js`: Service worker listening for toolbar icon clicks, injecting the toggle function into a Slack tab, setting the badge indicator, and reloading all open Slack tabs.
 
 ### Runtime behavior
 
 When the extension icon is clicked:
 
-1. Verifies the clicked tab's origin is exactly `https://app.slack.com`. Otherwise, nothing happens.
-2. Injects a small function into the tab with `chrome.scripting.executeScript` that reads `slack-client-theme` from `localStorage`.
+1. Finds all open tabs on `https://app.slack.com/`. If none are open, nothing happens.
+2. Injects a small function into one Slack tab with `chrome.scripting.executeScript` that reads `slack-client-theme` from `localStorage`.
 3. Determines the next theme value:
    - If current value is `dark`, switches to `light`.
    - If current value is `light`, any other value, or unset, switches to `dark`.
 4. Writes the new value back to `localStorage`.
 5. Updates the toolbar action badge and tooltip title to display the current theme status (or `ERR` on failure).
-6. Reloads the Slack tab so the client picks up the new theme.
+6. Reloads all open Slack tabs so each client picks up the new theme.
 
 ## Project structure
 
@@ -73,10 +73,10 @@ The background service worker running in response to action clicks.
 Responsibilities:
 
 - Listens to `chrome.action.onClicked`.
-- Ignores tabs whose origin is not `https://app.slack.com`.
+- Finds open tabs whose origin is `https://app.slack.com`.
 - Injects a self-contained function that toggles `slack-client-theme` between `dark` and `light` in `localStorage`.
 - Updates the extension badge text, badge background color, and tooltip title.
-- Reloads the Slack tab via `chrome.tabs.reload`.
+- Reloads all open Slack tabs via `chrome.tabs.reload`.
 - Captures errors and displays an error badge (`ERR`) with red background if the update fails.
 
 ### `tests/background.test.js`
@@ -86,9 +86,9 @@ Automated test suite using Node.js built-in test runner.
 Responsibilities:
 
 - Simulates `chrome.scripting`, `chrome.tabs`, `chrome.action`, and `localStorage` in a sandbox context using `node:vm`.
-- Verifies `dark -> light` and `light -> dark` toggling with a reload of the Slack tab.
+- Verifies `dark -> light` and `light -> dark` toggling with a reload of all open Slack tabs.
 - Verifies creation of a missing key as `dark`.
-- Verifies tabs outside `https://app.slack.com` are ignored (including `slack.com`, other subdomains, and `http`).
+- Verifies no action is taken when no Slack tabs are open.
 - Verifies injection failures propagate without reloading the tab.
 
 ## Installing in Google Chrome using Developer mode
@@ -134,7 +134,7 @@ Open Slack at `https://app.slack.com/` and click the extension icon in your brow
 - If current theme is `light`, it switches to `dark`.
 - If no `slack-client-theme` key exists (or it holds another value), it switches to `dark`.
 
-The badge updates to indicate the active theme state and the Slack tab reloads automatically. Clicking the icon on any other website does nothing.
+The badge updates to indicate the active theme state and all open Slack tabs reload automatically. You can click the icon from any tab.
 
 ## Development workflow
 
@@ -164,7 +164,7 @@ Ensure you selected the root folder containing `manifest.json` directly, rather 
 
 ### Nothing happens after clicking the icon
 
-The extension only acts on tabs at `https://app.slack.com/`. The Slack desktop app and other Slack URLs (for example, `https://slack.com/` or `https://<workspace>.slack.com/`) are not supported.
+Ensure a tab at `https://app.slack.com/` is open. The extension only changes those tabs. The Slack desktop app and other Slack URLs (for example, `https://slack.com/` or `https://<workspace>.slack.com/`) are not supported.
 
 ### Incognito tabs do not change theme
 
@@ -191,7 +191,7 @@ The extension requests minimal permissions in `manifest.json`:
 
 - `scripting`: Required to read and write `slack-client-theme` in the Slack page's `localStorage`.
 - `https://app.slack.com/*`: Restricts script injection strictly to the Slack web client.
-- Does not request the broad `tabs` permission (it uses the tab passed to the action click handler).
+- Does not request the broad `tabs` permission (host permission provides access to matching tab URLs).
 - No data is collected, tracked, or transmitted to any external server.
 
 ## Limitations
